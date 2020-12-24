@@ -269,6 +269,7 @@ func (c *Controller) Run(threads int, stop <-chan struct{}) error {
 
 // runWorker dequeues to reconcile, until the queue has closed.
 func (c *Controller) runWorker() {
+	fmt.Printf("runWorker !!!\n")
 	for {
 		key, shutdown := c.workqueue.Get()
 		if shutdown {
@@ -276,7 +277,7 @@ func (c *Controller) runWorker() {
 		}
 		func() {
 			defer c.workqueue.Done(key)
-
+			fmt.Printf("runWorker key %s\n", key.(string))
 			if err := reconcile(c, key.(string)); err != nil {
 				runtime.HandleError(fmt.Errorf("failed to reconcile %s: %v", key, err))
 				return // Do not forget so we retry later.
@@ -389,6 +390,7 @@ func (c *Controller) getPipelineRun(context, namespace, name string) (*pipelinev
 }
 
 func (c *Controller) getPipelineRunsWithSelector(context, namespace, selector string) ([]*pipelinev1alpha1.PipelineRun, error) {
+	fmt.Printf("getPipelineRunsWithSelector !!! %s\n", selector)
 	p, err := c.getPipelineConfig(context)
 	if err != nil {
 		return nil, err
@@ -399,6 +401,7 @@ func (c *Controller) getPipelineRunsWithSelector(context, namespace, selector st
 		return nil, fmt.Errorf("failed to parse selector %s", selector)
 	}
 	runs, err := p.Informer.Lister().PipelineRuns(namespace).List(label)
+	fmt.Printf("getPipelineRunsWithSelector runs %v %v %v\n", len(runs), runs, err)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list pipelineruns with label %s", label.String())
 	}
@@ -474,6 +477,7 @@ var (
 
 // reconcile ensures a tekton prowjob has a corresponding pipeline, updating the prowjob's status as the pipeline progresses.
 func reconcile(c reconciler, key string) error {
+	fmt.Printf("reconcile !!! %s\n", key)
 	logrus.Debugf("Reconcile: %s\n", key)
 
 	ctx, namespace, name, kind, err := fromKey(key)
@@ -490,20 +494,30 @@ func reconcile(c reconciler, key string) error {
 	var pr *pipelinev1alpha1.PipelineResource
 	var runs []*pipelinev1alpha1.PipelineRun
 
+	fmt.Printf("reconcile kind %s\n", kind)
+
 	switch kind {
 	case prowJob:
 		pj, err = c.getProwJob(name)
+		if err != nil {
+			fmt.Printf("reconcile DeletionTimestamp %v\n", pj.DeletionTimestamp)
+		}
 		switch {
 		case apierrors.IsNotFound(err):
+			fmt.Printf("reconcile switch IsNotFound\n")
 			// Do not want pipeline
 		case err != nil:
+			fmt.Printf("reconcile switch err %v\n", err)
 			return fmt.Errorf("get prowjob: %v", err)
-		case pj.Spec.Agent != prowjobv1.TektonAgent:
+		case pj.Spec.Agent != prowjobv1.TektonAgent && pj.Spec.Agent != "tekton":
+			fmt.Printf("reconcile switch Agent %v != %v\n", pj.Spec.Agent, prowjobv1.TektonAgent)
 			// Do not want a pipeline for this job
 		case pj.Spec.Cluster != ctx:
+			fmt.Printf("reconcile switch Cluster %v != %v\n", pj.Spec.Cluster, ctx)
 			// Build is in wrong cluster, we do not want this build
 			logrus.Warnf("%s found in context %s not %s", key, ctx, pj.Spec.Cluster)
 		case pj.DeletionTimestamp == nil:
+			fmt.Printf("reconcile switch DeletionTimestamp\n")
 			wantPipelineRun = true
 		}
 
@@ -517,7 +531,9 @@ func reconcile(c reconciler, key string) error {
 		reported = isReported(&pj.Status)
 
 		selector := fmt.Sprintf("%s = %s", prowJobName, name)
+		fmt.Printf("reconcile selector %s\n", selector)
 		runs, err = c.getPipelineRunsWithSelector(ctx, namespace, selector)
+		fmt.Printf("reconcile runs %v %v %v\n", len(runs), runs, err)
 		switch {
 		case apierrors.IsNotFound(err):
 			// Do not have a pipeline
@@ -532,17 +548,17 @@ func reconcile(c reconciler, key string) error {
 		if err != nil {
 			return fmt.Errorf("no pipelinerun found with name %s: %v", name, err)
 		}
-		prowJobName := p.Labels[prowJobName]
-		if prowJobName == "" {
+		jobName := p.Labels[prowJobName]
+		if jobName == "" {
 			return fmt.Errorf("no prowjob name label for pipelinerun %s: %v", name, err)
 		}
 
-		pj, err = c.getProwJob(prowJobName)
+		pj, err = c.getProwJob(jobName)
 		if err != nil {
 			return fmt.Errorf("no matching prowjob for pipelinerun %s: %v", name, err)
 		}
 
-		selector := fmt.Sprintf("%s = %s", prowJobName, name)
+		selector := fmt.Sprintf("%s = %s", prowJobName, jobName)
 		runs, err = c.getPipelineRunsWithSelector(ctx, namespace, selector)
 		if err != nil {
 			return fmt.Errorf("get pipelineruns %s by prow job %s: %v", key, prowJobName, err)
@@ -553,6 +569,10 @@ func reconcile(c reconciler, key string) error {
 			wantPipelineRun = true
 		}
 	}
+
+	fmt.Printf("reconcile wantPipelineRun %v\n", wantPipelineRun)
+	fmt.Printf("reconcile havePipelineRun %v\n", havePipelineRun)
+	fmt.Printf("reconcile reported %v\n", reported)
 
 	switch {
 	case !wantPipelineRun:
