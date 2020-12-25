@@ -405,9 +405,6 @@ func (c *Controller) getPipelineRunsWithSelector(context, namespace, selector st
 	if err != nil {
 		return nil, fmt.Errorf("failed to list pipelineruns with label %s", label.String())
 	}
-	if len(runs) > 1 {
-		return nil, fmt.Errorf("%s pipelineruns found with label %s, expected only 1", string(len(runs)), label.String())
-	}
 	if len(runs) == 0 {
 		return nil, apierrors.NewNotFound(pipelinev1alpha1.Resource("pipelinerun"), label.String())
 	}
